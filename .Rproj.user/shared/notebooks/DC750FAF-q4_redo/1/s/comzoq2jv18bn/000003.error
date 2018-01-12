@@ -1,0 +1,1 @@
+{"frames":[{"character_number":0,"end_character_number":0,"end_line_number":0,"file":"","func":"model(a_current, b_current, x)","line_number":0}],"message":"Error in model(a_current, b_current, x) : object 'b_current' not found\n"}

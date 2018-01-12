@@ -1,0 +1,4 @@
+"0","loss_function <- function(a, b, x, y){"
+"0","  loss <- (a*(x^b) - y)^2"
+"0","  return(loss)"
+"0","}"

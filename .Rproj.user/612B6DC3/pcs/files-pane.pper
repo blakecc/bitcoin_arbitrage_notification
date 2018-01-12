@@ -1,0 +1,9 @@
+{
+    "path" : "~/Documents/BitcoinArbitrage/BitcoinArbitrageNotification",
+    "sortOrder" : [
+        {
+            "ascending" : true,
+            "columnIndex" : 2
+        }
+    ]
+}

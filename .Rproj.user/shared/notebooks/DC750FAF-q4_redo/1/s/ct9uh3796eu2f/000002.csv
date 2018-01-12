@@ -1,0 +1,4 @@
+"0","loss_function_wrt_b <- function(a, b, x, y){"
+"0","  loss_b <- 2*a*(x^b)*log(x)*(a*(x^b) - y)"
+"0","  return(loss_b)"
+"0","}"

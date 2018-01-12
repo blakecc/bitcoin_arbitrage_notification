@@ -1,0 +1,4 @@
+"0","y_hat <- model(a_current, b_current, x)
+"
+"2","Error in model(a_current, b_current, x) : object 'b_current' not found
+"

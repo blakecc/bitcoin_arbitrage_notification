@@ -1,0 +1,4 @@
+"0","var_update <- function(old, rate, loss){"
+"0","  new <- old - rate*(1/length(loss))*sum(loss)"
+"0","  return(new)"
+"0","}"

@@ -1,0 +1,2 @@
+"0","new_a <- var_update(a_current, lambda, loss_a_hat)"
+"0","new_b <- var_update(b_current, lambda, loss_b_hat)"

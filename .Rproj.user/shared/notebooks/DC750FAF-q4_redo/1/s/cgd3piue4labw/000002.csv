@@ -1,0 +1,4 @@
+"0","model <- function(a, b, x){"
+"0","  y <- a*(x^b)"
+"0","  return(y)"
+"0","}"

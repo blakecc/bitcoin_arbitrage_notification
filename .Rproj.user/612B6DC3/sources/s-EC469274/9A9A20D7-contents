@@ -1,0 +1,845 @@
+---
+title: "R Notebook"
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document: default
+---
+
+
+```{r load_libraries, eval=T, echo=F, message=FALSE}
+rm(list = ls())
+
+list.of.packages <- c("MASS",
+                      "caret",
+                      "leaps",
+                      "e1071",
+                      "lattice",
+                      "randomForest",
+                      "gbm",
+                      "h2o",
+                      "mlbench",
+                      "ggplot2",
+                      "reshape2",
+                      "DEEPR",
+                      "captioner")
+
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+
+if (length(new.packages)>=1){
+  for (i in 1:length(new.packages)){
+    install.packages(new.packages[i])
+  }  
+}
+
+
+for (i in 1:length(list.of.packages)){
+  suppressWarnings(library(list.of.packages[i], character.only = T))
+}
+
+rm(list = c("i","list.of.packages", "new.packages"))
+
+# setwd("E:\\DataScienceData\\SL_Assignment")
+setwd("/Volumes/KINGSTON/DataScienceData/SL_Assignment")
+
+
+
+```
+```{r load_data, eval=F, echo=F}
+
+
+load_mnist <- function(path){
+  #load and prepare training data set
+  trainData <<- read.csv(paste0(path, "mnist_train.csv"))
+  
+  trainData <<- subset(trainData,
+                      label == "0" |
+                        label == "1" |
+                        label == "2" |
+                        label == "4" |
+                        label == "7")
+  
+  trainData$label <<- as.factor(trainData$label)
+  
+  #load and prepare test data set
+  testData <<- read.csv(paste0(path, "mnist_test.csv"))
+  
+  testData <<- subset(testData,
+                      label == "0" |
+                        label == "1" |
+                        label == "2" |
+                        label == "4" |
+                        label == "7")
+  
+  testData$label <<- as.factor(testData$label)
+}
+
+# load_mnist("/Users/blakecuningham/Dropbox/MScDataScience/Supervised Learning/project/Q1_MNIST/mnist_data")
+# load_mnist("E:\\MScDataScience\\Supervised Learning\\project\\Q1_MNIST\\mnist_data")
+load_mnist("")
+
+saveRDS(testData, file = "testData.rds")
+saveRDS(trainData, file = "trainData.rds")
+
+rm(list = c("testData", "trainData"))
+
+
+```
+```{r processing, eval=F, echo=F}
+train_nozero <- trainData[,c(label = TRUE, colSums(trainData[,-1]) != 0)]
+test_nozero <- testData[,c(label = TRUE, colSums(trainData[,-1]) != 0)]
+
+train_pca_model <- prcomp(trainData[,-1])
+train_pca <- cbind("label" = trainData$label, data.frame(train_pca_model$x[,1:260]))
+
+test_pca <- data.frame(predict(train_pca_model, testData[,-1]))
+test_pca <- cbind("label" = testData$label, test_pca[,1:260])
+  
+saveRDS(train_nozero, "train_nozero.rds")
+saveRDS(test_nozero, "test_nozero.rds")
+
+saveRDS(train_pca_model, "train_pca_model.rds")
+saveRDS(train_pca, "train_pca.rds")
+saveRDS(test_pca, "test_pca.rds")
+
+rm(list = c("train_nozero", "test_nozero", "train_pca_model", "train_pca", "test_pca"))
+```
+```{r read_objects, echo=F, eval=T}
+
+testData <- readRDS("testData.rds")
+trainData <- readRDS("trainData.rds")
+
+train_nozero <- readRDS("train_nozero.rds")
+test_nozero <- readRDS("test_nozero.rds")
+
+train_pca_model <- readRDS("train_pca_model.rds")
+train_pca <- readRDS("train_pca.rds")
+test_pca <- readRDS("test_pca.rds")
+
+fit_lda_1 <- readRDS("fit_lda_1.rds")
+lda_pca_results <- readRDS("lda_pca_results.rds")
+fit_lda_2 <- readRDS("fit_lda_2.rds")
+qda_pca_results <- readRDS("qda_pca_results.rds")
+fit_qda_2 <- readRDS("fit_qda_2.rds")
+svm_pca_results <- readRDS("svm_pca_results.rds")
+fit_svm_1 <- readRDS("fit_svm_1.rds")
+
+```
+```{r initfigs, echo=F, eval=T}
+figs <- captioner(prefix="Figure")
+tbls <- captioner(prefix="Table")
+```
+
+
+#Q1 - MNIST
+
+##Visualising the data
+```{r plotnum, echo=F, eval=T}
+rotate <- function(x) t(apply(x, 2, rev))
+plotnum <- function(x){
+  image(
+  rotate(matrix(unlist(trainData[x,-1]),nrow = 28,byrow = T)),
+  col=grey.colors(255),
+  xlab=trainData[x,1],
+  axes = F
+  )
+}
+
+par(mfrow=c(3,5))
+for (i in 1:15){
+  plotnum(i)
+}
+
+```
+
+*`r figs(name="num_images","Visualization of first 12 images in training data")`*
+
+##Identifying appropriate number of principle components
+```{r, echo=F}
+plot(train_pca_model$sdev / sum(train_pca_model$sdev), main = "Proportion of principle component variance", ylab = "Proportion of total variance", xlab = "Principle component")
+```
+
+*`r figs(name="PCA_var","Proportion of variance explained by components")`*
+
+```{r pcaID, echo=F}
+
+diffpcax1 <- rep(0, times = (length(train_pca_model$sdev) - 1))
+
+for (i in 2:length(train_pca_model$sdev)){
+    diffpcax1[i-1]<- (train_pca_model$sdev[i] - train_pca_model$sdev[i -1]) / train_pca_model$sdev[i - 1]
+}
+
+diffpcax2 <- rep(0, times = (length(diffpcax1) - 1))
+
+for (i in 2:length(diffpcax1)){
+    diffpcax2[i-1]<- (diffpcax1[i] - diffpcax1[i -1]) / diffpcax1[i - 1]
+}
+
+pca2diff.rank <- order(as.data.frame(abs(diffpcax2))[1:250,1], decreasing = T)
+
+# par(mfrow = c(3,1))
+plot(abs(diffpcax2[1:250]), main = "Second derivative of principle components", ylab = "2nd derivative of standard dev.", xlab = "Principle component number")
+abline(v = pca2diff.rank[1], lty = 2, col = "darkblue")
+text(pca2diff.rank[1], 100, paste0(" PC: ", pca2diff.rank[1]+2), adj = 0, col = "darkblue")
+abline(v = pca2diff.rank[2], lty = 2, col = "darkblue")
+text(pca2diff.rank[2], 100, paste0(" PC: ", pca2diff.rank[2]+2), adj = 0, col = "darkblue")
+abline(v = pca2diff.rank[3], lty = 2, col = "darkblue")
+text(pca2diff.rank[3], 100, paste0(" PC: ", pca2diff.rank[3]+2), adj = 0, col = "darkblue")
+abline(v = pca2diff.rank[4], lty = 2, col = "darkblue")
+text(pca2diff.rank[4], 100, paste0(" PC: ", pca2diff.rank[4]+2), adj = 0, col = "darkblue")
+
+# plot(abs(diffpcax1[1:200]))
+# abline(v = pca2diff.rank[1]+1, lty = 2)
+# abline(v = pca2diff.rank[2]+1, lty = 2)
+# abline(v = pca2diff.rank[3]+1, lty = 2)
+# abline(v = pca2diff.rank[4]+1, lty = 2)
+# 
+# plot(abs(train_pca_model$sdev[1:200]))
+# abline(v = pca2diff.rank[1]+2, lty = 2)
+# abline(v = pca2diff.rank[2]+2, lty = 2)
+# abline(v = pca2diff.rank[3]+2, lty = 2)
+# abline(v = pca2diff.rank[4]+2, lty = 2)
+
+```
+
+*`r figs(name="PCA_elbow","Selecting potential PCA elbow points via 2nd derivative of variance")`*
+
+
+##Try LDA
+```{r lda_1_fit, echo=F, eval=F}
+
+#fit the model with the training data
+fit_lda_1 <- lda(label~., data = train_nozero)
+
+saveRDS(fit_lda_1, "fit_lda_1.rds")
+rm(fit_lda_1)
+```
+```{r lda_1_results, echo=F, cache=T}
+#look at training data fit
+lda_1.train.pred <- predict(fit_lda_1)
+lda_1.train.class <- lda_1.train.pred$class
+# table(ldafit1.class, trainData11$label
+lda_1.train.acc <- mean(lda_1.train.class == train_nozero$label)
+
+#look at test data fit
+lda_1.test.pred <- predict(fit_lda_1, test_nozero)
+lda_1.test.class <- lda_1.test.pred$class
+lda_1.test.acc <- mean(lda_1.test.class == test_nozero$label)
+
+lda_1.train.conf <- confusionMatrix(lda_1.train.class, train_nozero$label)
+lda_1.test.conf <- confusionMatrix(lda_1.test.class, test_nozero$label)
+```
+
+Train results `r sprintf("%.2f%%", 100*lda_1.train.conf$overall[[1]])`
+
+*`r tbls(name="LDA1_train_conf","Confusion matrix of LDA model on training data")`*
+```{r, echo=F, eval=T}
+knitr::kable(addmargins(lda_1.train.conf$table))
+```
+
+Test results `r sprintf("%.2f%%", 100*lda_1.test.conf$overall[[1]])`
+
+*`r tbls(name="LDA1_test_conf","Confusion matrix of LDA model on test data")`*
+```{r, echo=F, eval=T}
+knitr::kable(addmargins(lda_1.test.conf$table))
+```
+
+##LDA with PCA
+```{r lda_pca_fit, echo=F, eval=F}
+#try different PCAs
+
+pca_list <- c(10, 59, 83, 186)
+lda_pca_results <- data.frame("Train_acc" = rep(0, 4), "Test_acc" = rep(0, 4), row.names = pca_list)
+
+for (i in pca_list){
+  fit_lda_pca <- lda(label~., data = train_pca[,1:i])
+  lda_pca.train.pred <- predict(fit_lda_pca)
+  lda_pca.train.class <- lda_pca.train.pred$class
+  lda_pca.train.acc <- mean(lda_pca.train.class == train_pca$label)
+  
+  lda_pca.test.pred <- predict(fit_lda_pca, test_pca[,1:i])
+  lda_pca.test.class <- lda_pca.test.pred$class
+  lda_pca.test.acc <- mean(lda_pca.test.class == test_pca$label)
+  
+  lda_pca_results[paste0(i),] <- c(round(lda_pca.train.acc*100,2), round(lda_pca.test.acc*100,2))
+}
+
+saveRDS(lda_pca_results, "lda_pca_results.rds")
+rm(lda_pca_results)
+```
+```{r lda_2_fit, echo=F, eval=F}
+#fit the model with the training data
+fit_lda_2 <- lda(label~., data = train_pca[,1:186])
+
+saveRDS(fit_lda_2, "fit_lda_2.rds")
+rm(fit_lda_2)
+```
+```{r lda_2_results, echo=F, cache=T}
+#look at training data fit
+lda_2.train.pred <- predict(fit_lda_2)
+lda_2.train.class <- lda_2.train.pred$class
+# table(ldafit1.class, trainData11$label
+lda_2.train.acc <- mean(lda_2.train.class == train_nozero$label)
+
+#look at test data fit
+lda_2.test.pred <- predict(fit_lda_2, test_pca[,1:186])
+lda_2.test.class <- lda_2.test.pred$class
+lda_2.test.acc <- mean(lda_2.test.class == test_pca$label)
+
+lda_2.train.conf <- confusionMatrix(lda_2.train.class, train_pca$label)
+lda_2.test.conf <- confusionMatrix(lda_2.test.class, test_pca$label)
+```
+
+Train results `r sprintf("%.2f%%", 100*lda_2.train.conf$overall[[1]])`
+
+*`r tbls(name="LDA2_train_conf","Confusion matrix of LDA model on training data")`*
+```{r, echo=F, eval=T}
+knitr::kable(addmargins(lda_2.train.conf$table))
+```
+
+Test results `r sprintf("%.2f%%", 100*lda_2.test.conf$overall[[1]])`
+
+*`r tbls(name="LDA2_test_conf","Confusion matrix of LDA model on test data")`*
+```{r, echo=F, eval=T}
+knitr::kable(addmargins(lda_2.test.conf$table))
+```
+
+##QDA
+
+QDA was not able to fit a model based on the raw data, even after the zero-only variables were removed. Because of this, QDA was only investigated with the principle component data.
+
+```{r qda_pca_fit, echo=F, eval=F}
+#try different PCAs
+
+pca_list <- c(10, 59, 83, 186)
+qda_pca_results <- data.frame("Train_acc" = rep(0, 4), "Test_acc" = rep(0, 4), row.names = pca_list)
+
+for (i in pca_list){
+  fit_qda_pca <- qda(label~., data = train_pca[,1:i])
+  qda_pca.train.pred <- predict(fit_qda_pca)
+  qda_pca.train.class <- qda_pca.train.pred$class
+  qda_pca.train.acc <- mean(qda_pca.train.class == train_pca$label)
+  
+  qda_pca.test.pred <- predict(fit_qda_pca, test_pca[,1:i])
+  qda_pca.test.class <- qda_pca.test.pred$class
+  qda_pca.test.acc <- mean(qda_pca.test.class == test_pca$label)
+  
+  qda_pca_results[paste0(i),] <- c(round(qda_pca.train.acc*100,2), round(qda_pca.test.acc*100,2))
+}
+
+saveRDS(qda_pca_results, "qda_pca_results.rds")
+rm(qda_pca_results)
+```
+
+*`r tbls(name="QDA_pca_opt", "Optimal number of principle components for QDA model")`*
+```{r echo=F, eval=T}
+names(qda_pca_results) <- c("Training accuracy", "Test accuracy")
+knitr::kable(qda_pca_results)
+```
+```{r qda_2_fit, echo=F, eval=F}
+#fit the model with the training data
+fit_qda_2 <- qda(label~., data = train_pca[,1:59])
+
+saveRDS(fit_qda_2, "fit_qda_2.rds")
+rm(fit_qda_2)
+```
+```{r qda_2_results, echo=F, cache=T}
+#look at training data fit
+qda_2.train.pred <- predict(fit_qda_2)
+qda_2.train.class <- qda_2.train.pred$class
+# table(ldafit1.class, trainData11$label
+qda_2.train.acc <- mean(qda_2.train.class == train_pca$label)
+
+#look at test data fit
+qda_2.test.pred <- predict(fit_qda_2, test_pca[,1:59])
+qda_2.test.class <- qda_2.test.pred$class
+qda_2.test.acc <- mean(qda_2.test.class == test_pca$label)
+
+qda_2.train.conf <- confusionMatrix(qda_2.train.class, train_pca$label)
+qda_2.test.conf <- confusionMatrix(qda_2.test.class, test_pca$label)
+```
+
+Train results `r sprintf("%.2f%%", 100*qda_2.train.conf$overall[[1]])`
+
+*`r tbls(name="QDA2_train_conf","Confusion matrix of QDA model on training data")`*
+```{r, echo=F, eval=T}
+knitr::kable(addmargins(qda_2.train.conf$table))
+```
+
+Test results `r sprintf("%.2f%%", 100*qda_2.test.conf$overall[[1]])`
+
+*`r tbls(name="QDA2_test_conf","Confusion matrix of LDA model on test data")`*
+```{r, echo=F, eval=T}
+knitr::kable(addmargins(qda_2.test.conf$table))
+```
+
+
+
+
+
+##Try random forrest (bagging) approach - 15 trees only
+```{r, eval=F, echo=F}
+# library(randomForest)
+
+#load and prepare training data set
+trainData_rf <- read.csv("/Users/blakecuningham/Dropbox/MScDataScience/Supervised Learning/project/mnist_data/mnist_train.csv")
+
+trainData_rf <- subset(trainData_rf,
+                    label == "0" |
+                      label == "1" |
+                      label == "2" |
+                      label == "4" |
+                      label == "7")
+
+trainData_rf$label <- as.factor(trainData_rf$label)
+
+head(trainData_rf)
+
+bag <- randomForest(label~., data = trainData_rf, mtry=ncol(trainData_rf)-1, ntree=15, importance=TRUE, na.action=na.exclude)
+
+bag
+
+testData_rf <- read.csv("/Users/blakecuningham/Dropbox/MScDataScience/Supervised Learning/project/mnist_data/mnist_test.csv")
+
+testData_rf <- subset(testData_rf,
+                    label == "0" |
+                      label == "1" |
+                      label == "2" |
+                      label == "4" |
+                      label == "7")
+
+testData_rf$label <- as.factor(testData_rf$label)
+
+#look at test data fit
+bagfit.pred <- predict(bag, testData_rf)
+# bagfit.class <- bagfit.pred$class
+
+table(bagfit.pred, testData_rf$label)
+
+mean(bagfit.pred == testData_rf$label)
+
+confusionMatrix(bagfit.pred, testData_rf$label)
+
+```
+
+#Try actual random forrest approach, and increase number of trees
+```{r, eval=F, echo=F}
+library(randomForest)
+
+#load and prepare training data set
+
+load_mnist("/Users/blakecuningham/Dropbox/MScDataScience/Supervised Learning/project/mnist_data")
+
+# rforest <- randomForest(label~., data = trainData_rf, mtry=ncol(trainData_rf)-1, ntree=3, importance=TRUE, na.action=na.exclude) #bagging 
+
+rforest <- randomForest(label~., data = trainData, ntree=15, importance=TRUE, na.action=na.exclude) #uses default mtry
+
+fit_predictions_train <- predict(rforest)
+trainfit <- mean(fit_predictions_train == trainData$label, na.rm = T)
+
+fit_predictions_test <- predict(rforest, testData)
+testfit <- mean(fit_predictions_test == testData$label)
+
+Results <- rbind(Results, c("RandomForest15", 0, trainfit, testfit))
+
+rforest <- randomForest(label~., data = trainData, ntree=30, importance=TRUE, na.action=na.exclude) #uses default mtry
+
+fit_predictions_train <- predict(rforest)
+trainfit <- mean(fit_predictions_train == trainData$label, na.rm = T)
+
+fit_predictions_test <- predict(rforest, testData)
+testfit <- mean(fit_predictions_test == testData$label, na.rm = T)
+
+Results <- rbind(Results, c("RandomForest30", 0, trainfit, testfit))
+
+##Evaulation function version
+eval_fit <- function(testData, fitObject, responseLabel){
+  fit_predictions <- predict(fitObject, testData)
+  print(table(fit_predictions, responseLabel))
+  print(mean(fit_predictions == responseLabel))
+  confusionMatrix(fit_predictions, responseLabel)
+}
+
+eval_fit(testData, rforest, testData$label)
+
+```
+
+#Try actual random forrest approach, and increase number of trees using PCA first
+```{r, eval=F, echo=F}
+library(randomForest)
+
+rf_pca_num <- 200
+
+new_train <- cbind("label" = trainData$label, data.frame(train_pca$x))
+new_train <- new_train[, 1:rf_pca_num]
+new_train <- data.frame(new_train)
+new_train$label <- as.character(new_train$label)
+new_train$label <- as.factor(new_train$label)
+
+rforest <- randomForest(label~., data = new_train, ntree=50, importance=TRUE, na.action=na.exclude) #uses default mtry
+
+fit_predictions_train <- predict(rforest)
+mean(fit_predictions_train == trainData$label, na.rm = T)
+
+test_pca <- data.frame(predict(train_pca, testData[,-1]))
+test_pca <- cbind("label" = testData$label, test_pca)
+test_pca <- test_pca[, 1:rf_pca_num]
+test_pca$label <- as.character(test_pca$label)
+test_pca$label <- as.factor(test_pca$label)
+
+fit_predictions_test <- predict(rforest, test_pca)
+mean(fit_predictions_test == test_pca$label)
+
+
+```
+
+#h2o random forest
+```{r, eval=F, echo=F}
+
+
+```
+
+
+#Try Boosting
+```{r, eval=F, echo=F}
+library(randomForest)
+library(gbm)
+
+boost1 <- gbm(label~., data = trainData, n.trees = 100, interaction.depth = 1, shrinkage = 0.01, bag.fraction = 1, cv.folds = 6, n.cores = 3)
+boost2 <- gbm(label~., data = trainData, n.trees = 100, interaction.depth = 2, shrinkage = 0.01, bag.fraction = 1, cv.folds = 6, n.cores = 3)
+boost3 <- gbm(label~., data = trainData, n.trees = 100, interaction.depth = 2, shrinkage = 0.001, bag.fraction = 1, cv.folds = 6, n.cores = 3)
+boost4 <- gbm(label~., data = trainData, n.trees = 2000, interaction.depth = 2, shrinkage = 0.001, bag.fraction = 1, cv.folds = 6, n.cores = 3)
+
+boost_trainfit.pred <- predict(boost2, type = "response")
+boost_trainfit.pred <- data.frame("prediction" = as.factor(apply(boost_trainfit.pred, 1, which.max)))
+levels(boost_trainfit.pred$prediction) <- c(0,1,2,4,7)
+
+# boost_trainfit.pred <- data.frame(boost_trainfit.pred)
+# boost_trainfit.pred <- data.frame(boost_trainfit.pred)
+# boost_trainfit.pred$max <- apply(boost_trainfit.pred[,1:5],1,max)
+# numbers <- matrix(rep(c(0,1,4,5,7), length(boost_trainfit.pred$max)), ncol = 5, byrow = T)
+# boost_trainfit.pred$pred <- apply((boost_trainfit.pred[,1:5] == boost_trainfit.pred$max)*numbers, 1, max)
+
+table(boost_trainfit.pred$prediction, trainData$label)
+mean(boost_trainfit.pred$prediction == trainData$label)
+
+boost4
+
+#look at test data fit
+boostfit.pred <- predict(boost, testData_rf)
+# bagfit.class <- bagfit.pred$class
+
+table(boostfit.pred, testData_rf$label)
+# 
+boostfit.pred
+# 
+# boost
+
+mean(boostfit.pred == testData_rf$label)
+
+confusionMatrix(boostfit.pred, testData_rf$label)
+
+```
+
+#Try Boosting with PCA first
+```{r, eval=F, echo=F}
+library(randomForest)
+library(gbm)
+
+boost_pca_num <- 70
+
+new_train <- cbind("label" = trainData$label, data.frame(train_pca$x))
+new_train <- new_train[, 1:boost_pca_num]
+new_train <- data.frame(new_train)
+new_train$label <- as.character(new_train$label)
+new_train$label <- as.factor(new_train$label)
+
+#####
+#fit the model with the training data
+boost1pca <- gbm(label~., data = new_train, n.trees = 100, interaction.depth = 1, shrinkage = 0.01, bag.fraction = 1, cv.folds = 6, n.cores = 3)
+boost2pca <- gbm(label~., data = new_train, n.trees = 200, interaction.depth = 2, shrinkage = 0.01, bag.fraction = 1, cv.folds = 6, n.cores = 3)
+boost3pca <- gbm(label~., data = new_train, n.trees = 100, interaction.depth = 2, shrinkage = 0.001, bag.fraction = 1, cv.folds = 6, n.cores = 3)
+boost4pca <- gbm(label~., data = new_train, n.trees = 2000, interaction.depth = 2, shrinkage = 0.001, bag.fraction = 1, cv.folds = 6, n.cores = 3)
+
+#look at training data fit
+boost_trainfit.pred <- predict(boost2pca, type = "response")
+boost_trainfit.pred <- data.frame("prediction" = as.factor(apply(boost_trainfit.pred, 1, which.max)))
+levels(boost_trainfit.pred$prediction) <- c(0,1,2,4,7)
+table(boost_trainfit.pred$prediction, new_train$label)
+mean(boost_trainfit.pred$prediction == new_train$label)
+
+#look at test fit data
+#first convert the test data into PCA
+test_pca <- data.frame(predict(train_pca, testData[,-1]))
+test_pca <- cbind("label" = testData$label, test_pca)
+test_pca <- test_pca[, 1:boost_pca_num]
+test_pca$label <- as.character(test_pca$label)
+test_pca$label <- as.factor(test_pca$label)
+
+#now fit
+boost_testfit.pred <- predict(boost2pca, test_pca, type = "response")
+boost_testfit.pred <- data.frame("prediction" = as.factor(apply(boost_testfit.pred, 1, which.max)))
+levels(boost_testfit.pred$prediction) <- c(0,1,2,4,7)
+table(boost_testfit.pred$prediction, test_pca$label)
+mean(boost_testfit.pred$prediction == test_pca$label)
+
+```
+
+#Try SVM with PCA (100% train, 99.2% test fit - best so far, and very quick to run)
+```{r, eval=F, echo=F}
+library(e1071)
+
+svm_pca_num <- 186
+
+new_train <- cbind("label" = trainData$label, data.frame(train_pca$x))
+new_train <- new_train[, 1:svm_pca_num]
+new_train <- data.frame(new_train)
+new_train$label <- as.character(new_train$label)
+new_train$label <- as.factor(new_train$label)
+
+svmfit1 = svm(label~.,data=new_train, cost=100,scale=T) 
+
+svmfit_predictions_train <- predict(svmfit1)
+table(svmfit_predictions_train, trainData$label)
+mean(svmfit_predictions_train == trainData$label, na.rm = T)
+
+test_pca <- data.frame(predict(train_pca, testData[,-1]))
+test_pca <- cbind("label" = testData$label, test_pca)
+test_pca <- test_pca[, 1:svm_pca_num]
+test_pca$label <- as.character(test_pca$label)
+test_pca$label <- as.factor(test_pca$label)
+
+svmfit_predictions_test <- predict(svmfit1, test_pca)
+table(svmfit_predictions_test, test_pca$label)
+mean(svmfit_predictions_test == test_pca$label)
+
+summary(svmfit1)
+
+
+```
+
+```{r svm_pca_fit, echo=F, eval=F}
+#try different PCAs
+pca_list <- c(10, 59, 83, 186)
+svm_pca_results <- data.frame("Train_acc" = rep(0, 4), "Test_acc" = rep(0, 4), row.names = pca_list)
+
+for (i in pca_list){
+  fit_svm_pca <- svm(label~., data = train_pca[,1:i], cost = 100, scale = T)
+  svm_pca.train.class <- predict(fit_svm_pca)
+  # svm_pca.train.class <- svm_pca.train.pred$class
+  svm_pca.train.acc <- mean(svm_pca.train.class == train_pca$label)
+  
+  svm_pca.test.class <- predict(fit_svm_pca, test_pca[,1:i])
+  # svm_pca.test.class <- svm_pca.test.pred$class
+  svm_pca.test.acc <- mean(svm_pca.test.class == test_pca$label)
+  
+  svm_pca_results[paste0(i),] <- c(round(svm_pca.train.acc*100,2), round(svm_pca.test.acc*100,2))
+}
+
+saveRDS(svm_pca_results, "svm_pca_results.rds")
+rm(svm_pca_results)
+```
+
+*`r tbls(name="SVM_pca_opt", "Optimal number of principle components for SVM model")`*
+```{r echo=F, eval=T}
+names(svm_pca_results) <- c("Training accuracy", "Test accuracy")
+knitr::kable(svm_pca_results)
+```
+```{r svm_1_fit, echo=F, eval=F}
+#fit the model with the training data
+fit_svm_1 <- svm(label~., data = train_pca[,1:59], cost = 100, scale = T)
+
+saveRDS(fit_svm_1, "fit_svm_1.rds")
+rm(fit_svm_1)
+```
+```{r svm_1_results, echo=F, cache=T}
+#look at training data fit
+svm_1.train.class <- predict(fit_svm_1)
+# svm_1.train.class <- svm_1.train.pred$class
+# table(ldafit1.class, trainData11$label
+svm_1.train.acc <- mean(svm_1.train.class == train_pca$label)
+
+#look at test data fit
+svm_1.test.class <- predict(fit_svm_1, test_pca[,1:59])
+# svm_1.test.class <- svm_1.test.pred$class
+svm_1.test.acc <- mean(svm_1.test.class == test_pca$label)
+
+svm_1.train.conf <- confusionMatrix(svm_1.train.class, train_pca$label)
+svm_1.test.conf <- confusionMatrix(svm_1.test.class, test_pca$label)
+```
+
+Train results `r sprintf("%.2f%%", 100*svm_1.train.conf$overall[[1]])`
+
+*`r tbls(name="svm_1_train_conf","Confusion matrix of SVM model on training data")`*
+```{r, echo=F, eval=T}
+knitr::kable(addmargins(svm_1.train.conf$table))
+```
+
+Test results `r sprintf("%.2f%%", 100*svm_1.test.conf$overall[[1]])`
+
+*`r tbls(name="svm_1_test_conf","Confusion matrix of LDA model on test data")`*
+```{r, echo=F, eval=T}
+knitr::kable(addmargins(svm_1.test.conf$table))
+```
+
+
+
+
+#Use h2o with PCA
+```{r, eval=F, echo=F}
+
+h20_pca_num <- 200
+
+localH2O = h2o.init(ip = "localhost", port = 54321, startH2O = TRUE, min_mem_size = "1g", max_mem_size = "2g")
+
+# iris data ####
+# iris
+# samp <- c(sample(1:50,25), sample(51:100,25), sample(101:150,25))
+# irisTrain = iris[samp,]
+
+new_train <- cbind("label" = trainData$label, data.frame(train_pca$x))
+new_train <- new_train[, 1:h20_pca_num]
+new_train <- data.frame(new_train)
+new_train$label <- as.character(new_train$label)
+new_train$label <- as.factor(new_train$label)
+
+# View(new_train)
+
+# irisTest = iris[-samp,]
+
+test_pca <- data.frame(predict(train_pca, testData[,-1]))
+test_pca <- cbind("label" = testData$label, test_pca)
+test_pca <- test_pca[, 1:h20_pca_num]
+test_pca$label <- as.character(test_pca$label)
+test_pca$label <- as.factor(test_pca$label)
+
+mnist.h2oTrain <- as.h2o(new_train)
+mnist.h2oTest <- as.h2o(test_pca)
+
+# mnist.dl <- h2o.deeplearning(x = 2:600 ,
+#                             y = 1, 
+#                             training_frame = mnist.h2oTrain, # data in H2O format
+#                             validation_frame = mnist.h2oTest,
+#                             activation = "TanhWithDropout", # or 'Tanh'
+#                             input_dropout_ratio = 0.2, # % of inputs dropout
+#                             hidden_dropout_ratios = c(0.5), # % for nodes dropout
+#                             balance_classes = TRUE, 
+#                             hidden = c(400), # three layers of 50 nodes
+#                             l1 = 1e-5,
+#                             #nfolds = 5,
+#                             epochs = 5, variable_importances = TRUE) # max. no. of epochs
+
+mnist.dl <- h2o.gbm(x = 2:h20_pca_num,
+                      y = 1,
+                      training_frame = mnist.h2oTrain, # data in H2O format
+                      validation_frame = mnist.h2oTest,
+                      ntrees = 1000,
+                    max_depth = 2,
+                    learn_rate = 0.01,
+                    distribution = "multinomial") # max. no. of epochs
+
+
+h2o.performance(mnist.dl)
+
+
+# now make a prediction
+predictionsTrain <- h2o.predict(mnist.dl, mnist.h2oTrain)
+predictionsTrain
+
+predictionsTest <- h2o.predict(mnist.dl, mnist.h2oTest)
+predictionsTest
+
+yhatTrain = as.factor(as.matrix(predictionsTrain$predict))
+confusionMatrix(yhatTrain, new_train$label)
+
+yhatTest = as.factor(as.matrix(predictionsTest$predict))
+confusionMatrix(yhatTest, test_pca$label)
+
+```
+
+
+#Use h2o without PCA
+```{r h2o_gbm_noPCA, echo=FALSE, eval=FALSE, echo=F}
+
+
+
+localH2O = h2o.init(ip = "localhost", port = 54321, startH2O = TRUE, min_mem_size = "3g", max_mem_size = "5g")
+
+# iris data ####
+# iris
+# samp <- c(sample(1:50,25), sample(51:100,25), sample(101:150,25))
+# irisTrain = iris[samp,]
+
+# new_train <- cbind("label" = trainData$label, data.frame(train_pca$x))
+# new_train <- new_train[, 1:h20_pca_num]
+# new_train <- data.frame(new_train)
+# new_train$label <- as.character(new_train$label)
+# new_train$label <- as.factor(new_train$label)
+
+
+# View(new_train)
+
+# irisTest = iris[-samp,]
+
+# test_pca <- data.frame(predict(train_pca, testData[,-1]))
+# test_pca <- cbind("label" = testData$label, test_pca)
+# test_pca <- test_pca[, 1:h20_pca_num]
+# test_pca$label <- as.character(test_pca$label)
+# test_pca$label <- as.factor(test_pca$label)
+
+mnist.h2oTrain <- as.h2o(trainData)
+mnist.h2oTest <- as.h2o(testData)
+
+# mnist.dl <- h2o.deeplearning(x = 2:785 ,
+#                             y = 1, 
+#                             training_frame = mnist.h2oTrain, # data in H2O format
+#                             validation_frame = mnist.h2oTest,
+#                             activation = "TanhWithDropout", # or 'Tanh'
+#                             input_dropout_ratio = 0.2, # % of inputs dropout
+#                             hidden_dropout_ratios = c(0.5, 0.5), # % for nodes dropout
+#                             balance_classes = TRUE, 
+#                             hidden = c(400, 200), 
+#                             l1 = 1e-5,
+#                             #nfolds = 5,
+#                             epochs = 10, variable_importances = TRUE) # max. no. of epochs
+
+mnist.dl <- h2o.gbm(x = 2:785,
+                      y = 1,
+                      training_frame = mnist.h2oTrain, # data in H2O format
+                      validation_frame = mnist.h2oTest,
+                      ntrees = 1000,
+                    max_depth = 2,
+                    learn_rate = 0.01,
+                    distribution = "multinomial") # max. no. of epochs
+
+
+mnist_boost_1000_h2o <- h2o.saveModel(mnist.dl, path = "E:\\DataScienceData\\RObjects")
+mnist.dl <- h2o.loadModel(mnist_boost_1000_h2o)
+
+h2o.performance(mnist.dl)
+plot(mnist.dl@model$scoring_history$number_of_trees, mnist.dl@model$scoring_history$training_rmse)
+
+# now make a prediction
+predictionsTrain <- as.data.frame(h2o.predict(mnist.dl, mnist.h2oTrain))
+predictionsTrain
+
+predictionsTest <- as.data.frame(h2o.predict(mnist.dl, mnist.h2oTest))
+predictionsTest
+
+yhatTrain = as.factor(as.matrix(predictionsTrain$predict))
+confusionMatrix(yhatTrain, new_train$label)
+
+yhatTest = as.factor(as.matrix(predictionsTest$predict))
+confusionMatrix(yhatTest, test_pca$label)
+
+h2o.shutdown(prompt = TRUE)
+
+```
+
+
+Classifier | Hyper-parameters | Train error | Test error | Notes
+-----------|------------------|-------------|------------|------
+LDA        |NA                |`r sprintf("%.2f%%", 100*lda_1.train.conf$overall[[1]])`|`r sprintf("%.2f%%", 100*lda_1.test.conf$overall[[1]])`|Full data with no constant variables
+LDA        |NA                |`r sprintf("%.2f%%", 100*lda_2.train.conf$overall[[1]])`|`r sprintf("%.2f%%", 100*lda_2.test.conf$overall[[1]])`|Using 186 principle components
+
+

@@ -1,0 +1,2 @@
+"0","loss_a_hat <- loss_function_wrt_a(a_current, b_current, x, y)"
+"0","loss_b_hat <- loss_function_wrt_b(a_current, b_current, x, y)"

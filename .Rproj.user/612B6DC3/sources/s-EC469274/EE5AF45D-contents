@@ -1,0 +1,8 @@
+key_info <- data.frame("Object" = c(), "Key" = c())
+
+key_info <- rbind(key_info,
+                  data.frame("Object" = "apilayer1", "Key" = "http://apilayer.net/api/live?access_key=fb4098900a0d9b09598c1895b7cf65bf&currencies=ZAR&format=1"),
+                  data.frame("Object" = "apilayer2", "Key" = "http://apilayer.net/api/live?access_key=84a64004820f9ade8acd8156431c9917&currencies=ZAR&format=1"),
+                  data.frame("Object" = "email_password", "Key" = "*@xPx95RV&p30CLZ"))
+
+saveRDS(key_info, "key_info.rds")

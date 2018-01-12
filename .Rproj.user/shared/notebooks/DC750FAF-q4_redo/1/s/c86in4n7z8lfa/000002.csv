@@ -1,0 +1,3 @@
+"0","losses <- loss_function(a_current, b_current, x, y)"
+"0","gradient_a <- (loss_a_fd - losses) / epsilon"
+"0","gradient_b <- (loss_b_fd - losses) / epsilon"
